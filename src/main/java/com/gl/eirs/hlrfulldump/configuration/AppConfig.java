@@ -1,8 +1,10 @@
 package com.gl.eirs.hlrfulldump.configuration;
 
 
+import com.gl.eirs.hlrfulldump.HlrDumpProcessorMain;
 import lombok.Data;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.stereotype.Service;
 
@@ -10,7 +12,10 @@ import org.springframework.stereotype.Service;
 @Data
 @Service
 public class AppConfig {
-
+    @Bean
+    public HlrDumpProcessorMain hlrDumpProcessorMain() {
+        return new HlrDumpProcessorMain();
+    }
 
     @Value("${batch.count}")
     int batchCount;
@@ -31,16 +36,16 @@ public class AppConfig {
     @Value("${password.decryptor}")
     String passwordDecryptor;
 
-    @Value("${db_url}")
+    @Value("jdbc:mysql://localhost:3306/aud")
     String dbUrl;
 
-    @Value("${jdbc_driver}")
+    @Value("com.mysql.cj.jdbc.Driver")
     String jdbcDriver;
 
     @Value("${spring.datasource.password}")
     String springDatasourcePassword;
 
-    @Value("${dbUsername}")
+    @Value("root")
     String dbUsername;
 
 }

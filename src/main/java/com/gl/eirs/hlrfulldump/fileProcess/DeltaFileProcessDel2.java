@@ -27,7 +27,7 @@ public class DeltaFileProcessDel2 {
 
     private static final Logger logger = LogManager.getLogger(DeltaFileProcessDel2.class);
 
-//    private static final AuditManagement auditManagement = new AuditManagement();
+    //    private static final AuditManagement auditManagement = new AuditManagement();
 //    private static final AlertManagement alertManagement = new AlertManagement();
 //    private static final Integer batchCount = Integer.valueOf(ProcessConfiguration.getProperty("batchCount"));
 //    private static final String fileSeparator = ProcessConfiguration.getProperty("fileSeparator");
@@ -47,7 +47,7 @@ public class DeltaFileProcessDel2 {
 
     @Autowired
     AppConfig appConfig;
-    public void deltaFileProcess(final Connection conn, final long executionStartTime) throws Exception {
+    public void deltaFileProcess(final Connection conn, final long executionStartTime, String delFileName, String operator) throws Exception {
 
 
         Integer batchCount = appConfig.getBatchCount();
@@ -55,14 +55,14 @@ public class DeltaFileProcessDel2 {
 
         String deltaFilePath = appConfig.getDeltaFilePath();
 
-        String operator = appConfig.getOperator();
+
         logger.info("Inside delta file deletion process function.");
         moduleName = moduleName+"_"+operator;
         LocalDateTime dateObj = LocalDateTime.now();
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyyMMdd");
-        String fileName = "hlr_full_dump_diff_del_" + operator + "_" + dateFormatter.format(dateObj) +".csv";
-        File hlrDeltaFile = new File(deltaFilePath + fileName);
+        File hlrDeltaFile = new File(deltaFilePath + delFileName);
         final String delInHlr = "DELETE FROM app.hlr_full_dump where imsi = ? and msisdn = ?";
+        final String insertInHis = "INSERT INTO app.hlr_dump_his (imsi, msisdn,operator) VALUES (?, ?, 1)";
         ArrayList<String> sqlQueries = new ArrayList<>();
         logger.info("Starting to read the delta file deletion for processing.");
         int line = 0;
@@ -72,6 +72,7 @@ public class DeltaFileProcessDel2 {
 
         try (BufferedReader reader = new BufferedReader(new FileReader(hlrDeltaFile));
              PreparedStatement delInHlrSt = conn.prepareStatement(delInHlr);
+             PreparedStatement insertInHisSt = conn.prepareStatement(insertInHis);
         ) {
             String nextLine;
             while ((nextLine = reader.readLine()) != null) {
@@ -89,9 +90,15 @@ public class DeltaFileProcessDel2 {
                 if (imsi.equalsIgnoreCase("IMSI") || msisdn.equalsIgnoreCase("MSISDN")) continue;
                 delInHlrSt.setString(1, imsi);
                 delInHlrSt.setString(2, msisdn);
-//                delInHlrSt.setString(3, operator);
+                /* delInHlrSt.setString(3, operator); */
                 delInHlrSt.addBatch();
+                insertInHisSt.setString(1, imsi);
+                insertInHisSt.setString(2, msisdn);
+                insertInHisSt.addBatch();
+
                 sqlQueries.add("DELETE FROM app.hlr_full_dump (imsi, msisdn) VALUES("+imsi+"," + msisdn +")");
+                sqlQueries.add("INSERT INTO app.hlr_dump_his (imsi, msisdn,operator) VALUES ("+imsi+"," + msisdn +", 1)");
+
 //                logger.info("Query added to batch for delete: DELETE FROM app.hlr_full_dump (imsi, msisdn, operator) VALUES("+imsi+"," + msisdn +","+operator));
                 logger.info("Query added to batch for delete: DELETE FROM app.hlr_full_dump (imsi, msisdn) VALUES( {}, {})", imsi, msisdn);
                 line++;
@@ -100,6 +107,7 @@ public class DeltaFileProcessDel2 {
 
                     try {
                         int[] delInDev = delInHlrSt.executeBatch();
+                        insertInHisSt.executeBatch();
                         conn.commit();
                         logger.info("Total entries processed for delete {}", batchCount);
                         for (int kld: delInDev) {
@@ -109,9 +117,10 @@ public class DeltaFileProcessDel2 {
                                 failureCount++;
                             }
                         }
+
                     } catch (BatchUpdateException e) {
 //                        String msg = alertManagement.alertMessage("alert1105", conn);
-                        alertManagement.raiseAnAlert("alert5215", fileName, operator, 0);
+                        alertManagement.raiseAnAlert("alert5215", delFileName, operator, 0);
                         logger.error("Delete statement to delete in hlr_full_dump failed for this batch." + e.getLocalizedMessage());
                         int cnt[] = e.getUpdateCounts();
                         for(int j=0;j<cnt.length;j++) {
@@ -129,6 +138,7 @@ public class DeltaFileProcessDel2 {
                 logger.info("Executing batch statements for deletion {} entries.", line);
                 try {
                     int[] delInDev = delInHlrSt.executeBatch();
+                    insertInHisSt.executeBatch();
                     conn.commit();
                     logger.info("Total entries processed for delete {}", line);
                     for (int kld: delInDev) {
@@ -141,7 +151,7 @@ public class DeltaFileProcessDel2 {
 
                 } catch (BatchUpdateException e) {
 
-                    alertManagement.raiseAnAlert("alert5215", fileName, operator, 0);
+                    alertManagement.raiseAnAlert("alert5215", delFileName, operator, 0);
                     logger.error("Delete statement to delete a record in hlr_full_dump table failed for this batch." + e.getLocalizedMessage());
                     int cnt[] = e.getUpdateCounts();
                     for(int j=0;j<cnt.length;j++) {
@@ -166,7 +176,7 @@ public class DeltaFileProcessDel2 {
             long deletedCount = delFileCount;
             alertManagement.raiseAnAlert("alert5202", exception.getMessage(), operator, 0);
             auditManagement.updateAudit(501, "FAIL", featureName, moduleName, insertCount, "",
-                     executionFinalTime, deletedCount, failureCount, "The diff file processing failed for file " + fileName, conn);
+                    executionFinalTime, deletedCount, failureCount, "The diff file processing failed for file " + delFileName, conn);
             System.exit(1);
         }
     }

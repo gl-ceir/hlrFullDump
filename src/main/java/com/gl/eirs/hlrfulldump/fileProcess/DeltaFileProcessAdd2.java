@@ -36,7 +36,8 @@ public class DeltaFileProcessAdd2 {
     AlertManagement alertManagement;
     @Autowired
     AuditManagement auditManagement;
-//    private static final Integer batchCount = Integer.valueOf(ProcessConfiguration.getProperty("batchCount"));
+
+    //    private static final Integer batchCount = Integer.valueOf(ProcessConfiguration.getProperty("batchCount"));
 //    private static final String fileSeparator = ProcessConfiguration.getProperty("fileSeparator");
 //    private static final String deltaFilePath = ProcessConfiguration.getProperty("deltaFilePath");
 //    private static final String operator = ProcessConfiguration.getProperty("operator");
@@ -48,7 +49,7 @@ public class DeltaFileProcessAdd2 {
     // store no of instance count and type of instances in an array. This will save mutliplt calls to pgm tables.
     @Autowired
     AppConfig appConfig;
-    public void deltaFileProcess(final Connection conn, final long executionStartTime) throws Exception {
+    public void deltaFileProcess(final Connection conn, final long executionStartTime, String addFileName, String operator) throws Exception {
 
         logger.info("Inside delta file addition process function.");
         Integer batchCount = appConfig.getBatchCount();
@@ -56,25 +57,36 @@ public class DeltaFileProcessAdd2 {
 
         String deltaFilePath = appConfig.getDeltaFilePath();
 
-        String operator = appConfig.getOperator();
+
         moduleName = moduleName+"_"+operator;
         LocalDateTime dateObj = LocalDateTime.now();
-        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyyMMdd");
-        String fileName = "hlr_full_dump_diff_add_" + operator + "_" + dateFormatter.format(dateObj) +".csv";
-        File hlrDeltaFile = new File(deltaFilePath + fileName);
+        File hlrDeltaFile = new File(deltaFilePath + addFileName);
         long addFileCount = 0;
         long failureCount=0;
         final String addInHlr = "INSERT INTO app.hlr_full_dump (imsi, msisdn, activation_date, operator)" +
                 "VALUES(?,?,?,?)";
+        final String createTableSql = "CREATE TABLE IF NOT EXISTS app.hlr_dump_his (" +
+                "imsi VARCHAR(15), " +
+                "msisdn VARCHAR(15), " +
+                "activation_date DATE, " +
+                "operator VARCHAR(5))";
+
         ArrayList<String> sqlQueries = new ArrayList<>();
         logger.info("Starting to read the delta file addition for processing.");
         int i = 0;
-
+        try (PreparedStatement createTableStmt = conn.prepareStatement(createTableSql)) {
+            createTableStmt.executeUpdate();
+            logger.info("Table 'hlr_dump_his' created successfully.");
+        } catch (Exception e) {
+            logger.error("Failed to create table 'hlr_dump_his': " + e.getMessage());
+            throw e; // Rethrow the exception to handle it at the higher level
+        }
         conn.setAutoCommit(false);
 
         int line = 0;
         try(BufferedReader reader = new BufferedReader(new FileReader(hlrDeltaFile));
             PreparedStatement addInHlrSt = conn.prepareStatement(addInHlr);
+            PreparedStatement insertIntoHisStmt = conn.prepareStatement("INSERT INTO app.hlr_dump_his (imsi, msisdn, activation_date ,operator) VALUES (?, ?, ? , ?)");
         ) {
             String nextLine;
             while ((nextLine = reader.readLine()) != null) {
@@ -119,9 +131,21 @@ public class DeltaFileProcessAdd2 {
                                 logger.error("The record is " + sqlQueries.get(kld));
                                 failureCount++;
                             }
+                            else {
+                                // Insert deleted record into hlr_dump_his
+                                insertIntoHisStmt.setString(1, imsi);
+                                insertIntoHisStmt.setString(2, msisdn);
+                                assert activationDate != null;
+                                insertIntoHisStmt.setString(3, String.valueOf(java.sql.Date.valueOf(activationDate)));
+                                insertIntoHisStmt.setString(4, operator);
+                                insertIntoHisStmt.addBatch();
+                            }
+
                         }
+                        insertIntoHisStmt.executeBatch();
+                        conn.commit();
                     } catch (BatchUpdateException e) {
-                        alertManagement.raiseAnAlert("alert5215", fileName, operator, 0);
+                        alertManagement.raiseAnAlert("alert5215", addFileName, operator, 0);
                         logger.error("Insert statement to create a record in hlr_full_dump table failed for this batch." + e.getLocalizedMessage());
                         int cnt[] = e.getUpdateCounts();
                         for(int j=0;j<cnt.length;j++) {
@@ -150,7 +174,7 @@ public class DeltaFileProcessAdd2 {
                         }
                     }
                 } catch (BatchUpdateException e) {
-                    alertManagement.raiseAnAlert("alert5215", fileName, operator, 0);
+                    alertManagement.raiseAnAlert("alert5215", addFileName, operator, 0);
                     logger.error("Insert statement to create a record in hlr_full_dump table failed for insert status for this batch." + e.getLocalizedMessage());
                     logger.error(sqlQueries);
                     int cnt[] = e.getUpdateCounts();
@@ -180,7 +204,7 @@ public class DeltaFileProcessAdd2 {
 //            final int failureCount=0;
             alertManagement.raiseAnAlert("alert5202", exception.getMessage(), operator, 0);
             auditManagement.updateAudit(501, "FAIL", featureName, moduleName, insertCount,"",
-                    executionFinalTime, deletedCount, failureCount, "The diff file processing failed for file " + fileName, conn);
+                    executionFinalTime, deletedCount, failureCount, "The diff file processing failed for file " + addFileName, conn);
 
             System.exit(1);
         }
