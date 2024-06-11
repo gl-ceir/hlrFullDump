@@ -63,30 +63,20 @@ public class DeltaFileProcessAdd2 {
         File hlrDeltaFile = new File(deltaFilePath + addFileName);
         long addFileCount = 0;
         long failureCount=0;
-        final String addInHlr = "INSERT INTO app.hlr_full_dump (imsi, msisdn, activation_date, operator)" +
-                "VALUES(?,?,?,?)";
-        final String createTableSql = "CREATE TABLE IF NOT EXISTS app.hlr_dump_his (" +
-                "imsi VARCHAR(15), " +
-                "msisdn VARCHAR(15), " +
-                "activation_date DATE, " +
-                "operator VARCHAR(5))";
+        final String addInHlr = "INSERT INTO app.active_msisdn_list (imsi, msisdn, activation_date, operator, remarks)" +
+                "VALUES(?,?,?,?,?)";
+
 
         ArrayList<String> sqlQueries = new ArrayList<>();
         logger.info("Starting to read the delta file addition for processing.");
         int i = 0;
-        try (PreparedStatement createTableStmt = conn.prepareStatement(createTableSql)) {
-            createTableStmt.executeUpdate();
-            logger.info("Table 'hlr_dump_his' created successfully.");
-        } catch (Exception e) {
-            logger.error("Failed to create table 'hlr_dump_his': " + e.getMessage());
-            throw e; // Rethrow the exception to handle it at the higher level
-        }
+
         conn.setAutoCommit(false);
 
         int line = 0;
         try(BufferedReader reader = new BufferedReader(new FileReader(hlrDeltaFile));
             PreparedStatement addInHlrSt = conn.prepareStatement(addInHlr);
-            PreparedStatement insertIntoHisStmt = conn.prepareStatement("INSERT INTO app.hlr_dump_his (imsi, msisdn, activation_date ,operator) VALUES (?, ?, ? , ?)");
+            PreparedStatement insertIntoHisStmt = conn.prepareStatement("INSERT INTO app.active_msisdn_list_his (imsi, msisdn, activation_date, operator, remarks, operation) VALUES (?, ?, ?, ?, ?, 0)");
         ) {
             String nextLine;
             while ((nextLine = reader.readLine()) != null) {
@@ -100,6 +90,7 @@ public class DeltaFileProcessAdd2 {
                 String imsi = hlrRecord[0].trim();
                 String msisdn = hlrRecord[1].trim();
                 String activationDate = hlrRecord[2].trim();
+                String remarks = "SIM change";
                 if(activationDate.isBlank()) {
                     activationDate = null;
                 }
@@ -113,11 +104,12 @@ public class DeltaFileProcessAdd2 {
                 addInHlrSt.setString(2, msisdn);
                 addInHlrSt.setString(3, activationDate);
                 addInHlrSt.setString(4, operator);
+                addInHlrSt.setString(5, remarks);
 
                 addInHlrSt.addBatch();
 //                sqlQueries.add("INSERT INTO app.device_sync_request (identity, instance_name, operation, request_date, status, imsi, msisdn, no_of_retry) VALUES(HLR_DATA," + instanceName +", ADD, " + LocalDateTime.now() + ", NEW, " + imsi + ", " + msisdn + ",0)");
-                sqlQueries.add("INSERT INTO app.hlr_full_dump (imsi,msisdn,activation_date,operator) values ("+imsi+","+msisdn+","+activationDate+","+operator+")");
-                logger.info("Query added to batch for insert: INSERT INTO app.hlr_full_dump (imsi, msisdn, operator) VALUES( {}, {}, {})", imsi, msisdn, operator);
+                sqlQueries.add("INSERT INTO app.active_msisdn_list (imsi, msisdn, activation_date, operator, remarks) VALUES (" + imsi + "," + msisdn + "," + activationDate + "," + operator + "," + remarks + ")");
+                logger.info("Query added to batch for insert: INSERT INTO app.active_msisdn_list (imsi, msisdn, activation_date, operator, remarks) VALUES({}, {}, {}, {}, {})", imsi, msisdn, activationDate, operator, remarks);
                 line++;
                 if (line % batchCount == 0) {
                     logger.info("Executing batch statements for addition {} entries.", batchCount);
@@ -127,7 +119,7 @@ public class DeltaFileProcessAdd2 {
                         logger.info("Total entries processed for insert {}", batchCount);
                         for (int kld: addInDev) {
                             if (kld == 0) {
-                                logger.error("Insert statement to create a record in hlr_full_dump table failed.");
+                                logger.error("Insert statement to create a record in active_msisdn_list table failed.");
                                 logger.error("The record is " + sqlQueries.get(kld));
                                 failureCount++;
                             }
@@ -138,6 +130,7 @@ public class DeltaFileProcessAdd2 {
                                 assert activationDate != null;
                                 insertIntoHisStmt.setString(3, String.valueOf(java.sql.Date.valueOf(activationDate)));
                                 insertIntoHisStmt.setString(4, operator);
+                                insertIntoHisStmt.setString(5, remarks);
                                 insertIntoHisStmt.addBatch();
                             }
 
@@ -146,7 +139,7 @@ public class DeltaFileProcessAdd2 {
                         conn.commit();
                     } catch (BatchUpdateException e) {
                         alertManagement.raiseAnAlert("alert5215", addFileName, operator, 0);
-                        logger.error("Insert statement to create a record in hlr_full_dump table failed for this batch." + e.getLocalizedMessage());
+                        logger.error("Insert statement to create a record in active_msisdn_list table failed for this batch." + e.getLocalizedMessage());
                         int cnt[] = e.getUpdateCounts();
                         for(int j=0;j<cnt.length;j++) {
                             if(cnt[j] <= 0) {
@@ -168,14 +161,14 @@ public class DeltaFileProcessAdd2 {
                     logger.info("Total entries processed for insert {}", line);
                     for (int kld: addInDev) {
                         if (kld == 0) {
-                            logger.error("Insert statement to create a record in hlr_full_dump table failed.");
+                            logger.error("Insert statement to create a record in active_msisdn_list table failed.");
                             logger.error("The records are" + sqlQueries.get(kld));
                             failureCount++;
                         }
                     }
                 } catch (BatchUpdateException e) {
                     alertManagement.raiseAnAlert("alert5215", addFileName, operator, 0);
-                    logger.error("Insert statement to create a record in hlr_full_dump table failed for insert status for this batch." + e.getLocalizedMessage());
+                    logger.error("Insert statement to create a record in active_msisdn_list table failed for insert status for this batch." + e.getLocalizedMessage());
                     logger.error(sqlQueries);
                     int cnt[] = e.getUpdateCounts();
                     for(int j=0;j<cnt.length;j++) {
