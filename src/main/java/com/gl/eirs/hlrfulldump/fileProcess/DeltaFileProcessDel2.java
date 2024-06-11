@@ -49,7 +49,7 @@ public class DeltaFileProcessDel2 {
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyyMMdd");
         File hlrDeltaFile = new File(deltaFilePath + delFileName);
         final String delInHlr = "DELETE FROM app.active_msisdn_list WHERE imsi = ? AND msisdn = ?";
-        final String insertInHis = "INSERT INTO app.active_msisdn_list_his (imsi, msisdn, operator, remarks, operation) VALUES (?, ?, ?, ?, 0)";
+        final String insertInHis = "INSERT INTO app.active_msisdn_list_his (imsi, msisdn, operator, remarks, operation,activation_date) VALUES (?, ?, ?, ?, 0,?)";
         ArrayList<String> sqlQueries = new ArrayList<>();
         logger.info("Starting to read the delta file deletion for processing.");
         int line = 0;
@@ -64,7 +64,12 @@ public class DeltaFileProcessDel2 {
              PreparedStatement insertInHisSt = conn.prepareStatement(insertInHis)) {
 
             String nextLine;
+            boolean isFirstLine = true; // Variable to skip the header
             while ((nextLine = reader.readLine()) != null) {
+                if (isFirstLine) {
+                    isFirstLine = false;
+                    continue; // Skip the header line
+                }
                 if (nextLine.isEmpty()) {
                     continue;
                 }
@@ -75,7 +80,8 @@ public class DeltaFileProcessDel2 {
                 hlrRecords.add(hlrRecord);
                 String imsi = hlrRecord[0].trim();
                 String msisdn = hlrRecord[1].trim();
-                String remarks = "Sim Change";
+                String remarks = "Hlr Full Dump";
+                String activationDate = hlrRecord[2].trim();
                 if (imsi.equalsIgnoreCase("IMSI") || msisdn.equalsIgnoreCase("MSISDN")) continue;
 
                 delInHlrSt.setString(1, imsi);
@@ -95,8 +101,9 @@ public class DeltaFileProcessDel2 {
                                 insertInHisSt.setString(2, record[1].trim());
                                 insertInHisSt.setString(3, operator);
                                 insertInHisSt.setString(4, remarks);
+                                insertInHisSt.setString(5, activationDate);
                                 insertInHisSt.addBatch();
-                                sqlQueries.add("INSERT INTO app.active_msisdn_list_his (imsi, msisdn, operator, remarks, operation) VALUES (" + record[0].trim() + ", " + record[1].trim() + ", " + operator + ", " + remarks + ", 0)");
+                                sqlQueries.add("INSERT INTO app.active_msisdn_list_his (imsi, msisdn, operator, remarks, operation, activation_date) VALUES (" + record[0].trim() + ", " + record[1].trim() + ", " + operator + ", " + remarks + ", 0 , " + activationDate + ")");
                             }
                         }
                         insertInHisSt.executeBatch();
@@ -104,7 +111,7 @@ public class DeltaFileProcessDel2 {
                         logger.info("Total entries processed for delete {}", batchCount);
                         for (int kld : delInDev) {
                             if (kld == 0) {
-                                logger.error("Delete statement to delete a record in hlr_full_dump table failed.");
+                                logger.error("Delete statement to delete a record in active_msisdn_table table failed.");
                                 logger.error("The record is " + sqlQueries.get(kld));
                                 failureCount++;
                             }
@@ -135,9 +142,10 @@ public class DeltaFileProcessDel2 {
                             insertInHisSt.setString(1, record[0].trim());
                             insertInHisSt.setString(2, record[1].trim());
                             insertInHisSt.setString(3, operator);
-                            insertInHisSt.setString(4, "Sim Change");
+                            insertInHisSt.setString(4, "Hlr Full Dump");
+                            insertInHisSt.setString(5, record[2].trim());
                             insertInHisSt.addBatch();
-                            sqlQueries.add("INSERT INTO app.active_msisdn_list_his (imsi, msisdn, operator, remarks, operation) VALUES (" + record[0].trim() + ", " + record[1].trim() + ", " + operator + ", " + "Sim Change" + ", 0)");
+                            sqlQueries.add("INSERT INTO app.active_msisdn_list_his (imsi, msisdn, operator, remarks, operation, activation_date) VALUES (" + record[0].trim() + ", " + record[1].trim() + ", " + operator + ", " + "Hlr Full Dump" + ", 0 , " + record[2].trim() + ")");
                         }
                     }
                     insertInHisSt.executeBatch();

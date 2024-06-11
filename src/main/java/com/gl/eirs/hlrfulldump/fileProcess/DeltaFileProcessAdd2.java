@@ -90,7 +90,7 @@ public class DeltaFileProcessAdd2 {
                 String imsi = hlrRecord[0].trim();
                 String msisdn = hlrRecord[1].trim();
                 String activationDate = hlrRecord[2].trim();
-                String remarks = "SIM change";
+                String remarks = "Hlr Full Dump";
                 if(activationDate.isBlank()) {
                     activationDate = null;
                 }
